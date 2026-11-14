@@ -34,13 +34,14 @@ class AppLockAccessibilityService : AccessibilityService() {
             return
         }
 
-        // If our own app opened:
+        // Ignore our own app (PasswordLockActivity and MainActivity handle their own auth)
         if (pkg == packageName) {
-            val cls = event.className?.toString() ?: ""
-            // When returning to MainActivity (Home screen), re-lock any temporarily unlocked app
-            if (cls.contains("MainActivity")) {
-                KioskPrefs.clearTemporaryUnlock()
-            }
+            return
+        }
+
+        // If user returned to the default device homescreen, clear any temporary app unlock
+        if (KioskPrefs.isHomePackage(this, pkg)) {
+            KioskPrefs.clearTemporaryUnlock()
             return
         }
 

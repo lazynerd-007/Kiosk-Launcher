@@ -70,7 +70,7 @@ class PasswordLockActivity : AppCompatActivity() {
         }
 
         val titleView = TextView(this).apply {
-            text = "🔒 $appLabel is Restricted"
+            text = "$appLabel is Restricted"
             textSize = 20f
             setTextColor(Color.WHITE)
             gravity = Gravity.CENTER

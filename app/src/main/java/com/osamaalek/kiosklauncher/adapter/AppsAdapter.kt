@@ -1,7 +1,6 @@
 package com.osamaalek.kiosklauncher.adapter
 
 import android.content.Context
-import android.content.Intent
 import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
@@ -26,47 +25,20 @@ class AppsAdapter(private val list: List<AppInfo>, private val context: Context)
         val pkg = app.packageName?.toString() ?: ""
         val isRestricted = KioskPrefs.isPackageRestricted(context, pkg)
 
-        holder.textView.text = if (isRestricted) "🔒 ${app.label}" else app.label
+        holder.textView.text = app.label
         holder.imageView.setImageDrawable(app.icon)
+        holder.itemView.alpha = if (isRestricted) 1.0f else 0.5f
 
         holder.itemView.setOnClickListener {
-            if (pkg.isEmpty()) return@setOnClickListener
-            val launchIntent: Intent? = context.packageManager.getLaunchIntentForPackage(pkg)
-            if (launchIntent != null) {
-                if (KioskPrefs.isPackageRestricted(context, pkg)) {
-                    KioskPrefs.requirePassword(
-                        context,
-                        title = "Restricted App",
-                        message = "Enter admin password to open ${app.label}:"
-                    ) {
-                        KioskPrefs.temporarilyUnlock(pkg)
-                        context.startActivity(launchIntent)
-                    }
-                } else {
-                    context.startActivity(launchIntent)
-                }
+            if (pkg.isEmpty() || pkg == context.packageName) return@setOnClickListener
+            val nowRestricted = KioskPrefs.togglePackageRestriction(context, pkg)
+            notifyItemChanged(position)
+            val statusMsg = if (nowRestricted) {
+                "${app.label} is now password-protected"
+            } else {
+                "${app.label} is now unlocked"
             }
-        }
-
-        holder.itemView.setOnLongClickListener {
-            if (pkg.isEmpty() || pkg == context.packageName) return@setOnLongClickListener true
-            val currentlyRestricted = KioskPrefs.isPackageRestricted(context, pkg)
-            val actionLabel = if (currentlyRestricted) "remove password restriction from" else "require password for"
-            KioskPrefs.requirePassword(
-                context,
-                title = "Manage App Restriction",
-                message = "Enter admin password to $actionLabel ${app.label}:"
-            ) {
-                val nowRestricted = KioskPrefs.togglePackageRestriction(context, pkg)
-                notifyItemChanged(position)
-                val statusMsg = if (nowRestricted) {
-                    "${app.label} is now password-restricted"
-                } else {
-                    "${app.label} is now unlocked"
-                }
-                Toast.makeText(context, statusMsg, Toast.LENGTH_SHORT).show()
-            }
-            true
+            Toast.makeText(context, statusMsg, Toast.LENGTH_SHORT).show()
         }
     }
 

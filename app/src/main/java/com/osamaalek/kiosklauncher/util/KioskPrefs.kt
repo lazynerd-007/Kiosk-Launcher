@@ -17,13 +17,7 @@ import java.security.MessageDigest
 object KioskPrefs {
     private const val PREFS_NAME = "kiosk_security_prefs"
     private const val KEY_PASSWORD_HASH = "password_hash"
-    private const val KEY_RESTRICTED_PACKAGES = "restricted_packages"
-    private const val KEY_RESTRICTED_INITIALIZED = "restricted_initialized"
-
-    private val DEFAULT_RESTRICTED = setOf(
-        "com.android.settings",
-        "com.android.vending"
-    )
+    private const val KEY_UNLOCKED_PACKAGES = "unlocked_packages"
 
     @Volatile
     private var temporarilyUnlockedPkg: String? = null
@@ -45,6 +39,18 @@ object KioskPrefs {
         return temporarilyUnlockedPkg == packageName
     }
 
+    fun isHomePackage(context: Context, packageName: String): Boolean {
+        return try {
+            val intent = Intent(Intent.ACTION_MAIN).apply {
+                addCategory(Intent.CATEGORY_HOME)
+            }
+            val resolveInfos = context.packageManager.queryIntentActivities(intent, 0)
+            resolveInfos.any { it.activityInfo?.packageName == packageName }
+        } catch (_: Exception) {
+            false
+        }
+    }
+
     fun isAccessibilityServiceEnabled(context: Context): Boolean {
         val expectedComponent = ComponentName(context, AppLockAccessibilityService::class.java)
         val enabledServices = Settings.Secure.getString(
@@ -60,7 +66,7 @@ object KioskPrefs {
         AlertDialog.Builder(context)
             .setTitle("Enable Global App Lock")
             .setMessage(
-                "To block restricted apps (such as Settings) even when opened from the swipe-down notification bar, enable 'Kiosk Launcher' in Android Accessibility Settings."
+                "To lock all apps across your device (including Settings from the notification bar), enable 'Kiosk Launcher' in Android Accessibility Settings."
             )
             .setPositiveButton("Open Settings") { _, _ ->
                 temporarilyUnlock("com.android.settings")
@@ -85,40 +91,38 @@ object KioskPrefs {
         return savedHash == hashPassword(plainPassword)
     }
 
-    fun getRestrictedPackages(context: Context): Set<String> {
-        val p = prefs(context)
-        if (!p.getBoolean(KEY_RESTRICTED_INITIALIZED, false)) {
-            p.edit()
-                .putStringSet(KEY_RESTRICTED_PACKAGES, HashSet(DEFAULT_RESTRICTED))
-                .putBoolean(KEY_RESTRICTED_INITIALIZED, true)
-                .apply()
-            return DEFAULT_RESTRICTED
-        }
-        return p.getStringSet(KEY_RESTRICTED_PACKAGES, DEFAULT_RESTRICTED) ?: DEFAULT_RESTRICTED
+    fun getUnlockedPackages(context: Context): Set<String> {
+        return prefs(context).getStringSet(KEY_UNLOCKED_PACKAGES, emptySet()) ?: emptySet()
     }
 
-    fun setRestrictedPackages(context: Context, packages: Set<String>) {
+    fun setUnlockedPackages(context: Context, packages: Set<String>) {
         prefs(context).edit()
-            .putStringSet(KEY_RESTRICTED_PACKAGES, HashSet(packages))
-            .putBoolean(KEY_RESTRICTED_INITIALIZED, true)
+            .putStringSet(KEY_UNLOCKED_PACKAGES, HashSet(packages))
             .apply()
     }
 
+    /**
+     * All apps are restricted (locked) by default unless explicitly added to the unlocked set,
+     * except our own app and the device's default Home launcher.
+     */
     fun isPackageRestricted(context: Context, packageName: String): Boolean {
         if (packageName == context.packageName) return false
-        return getRestrictedPackages(context).contains(packageName)
+        if (isHomePackage(context, packageName)) return false
+        return !getUnlockedPackages(context).contains(packageName)
     }
 
     fun togglePackageRestriction(context: Context, packageName: String): Boolean {
-        val current = getRestrictedPackages(context).toMutableSet()
-        val nowRestricted = if (current.contains(packageName)) {
-            current.remove(packageName)
-            false
-        } else {
-            current.add(packageName)
+        val unlocked = getUnlockedPackages(context).toMutableSet()
+        val nowRestricted = if (unlocked.contains(packageName)) {
+            // Was unlocked -> now restricted (locked)
+            unlocked.remove(packageName)
             true
+        } else {
+            // Was restricted (default) -> now unlocked
+            unlocked.add(packageName)
+            false
         }
-        setRestrictedPackages(context, current)
+        setUnlockedPackages(context, unlocked)
         return nowRestricted
     }
 
@@ -155,7 +159,7 @@ object KioskPrefs {
 
         val builder = AlertDialog.Builder(context)
             .setTitle("Set Kiosk Password")
-            .setMessage("Set an admin password to protect restricted apps (like Settings) and launcher settings.")
+            .setMessage("Set an admin password to unlock apps and manage Kiosk settings.")
             .setView(layout)
             .setCancelable(cancelable)
             .setPositiveButton("Save", null)
@@ -233,77 +237,5 @@ object KioskPrefs {
             }
         }
         dialog.show()
-    }
-
-    fun showRestrictedAppsDialog(activity: Activity, onUpdated: (() -> Unit)? = null) {
-        val allApps = AppsUtil.getAllApps(activity)
-            .filter { it.packageName?.toString() != activity.packageName }
-            .distinctBy { it.packageName?.toString() }
-            .sortedBy { it.label?.toString()?.lowercase() ?: "" }
-
-        val labels = allApps.map { "${it.label}" }.toTypedArray()
-        val currentRestricted = getRestrictedPackages(activity).toMutableSet()
-        val checkedItems = BooleanArray(allApps.size) { index ->
-            currentRestricted.contains(allApps[index].packageName.toString())
-        }
-
-        AlertDialog.Builder(activity)
-            .setTitle("Select Restricted Apps")
-            .setMultiChoiceItems(labels, checkedItems) { _, which, isChecked ->
-                val pkg = allApps[which].packageName.toString()
-                if (isChecked) {
-                    currentRestricted.add(pkg)
-                } else {
-                    currentRestricted.remove(pkg)
-                }
-            }
-            .setPositiveButton("Save") { _, _ ->
-                setRestrictedPackages(activity, currentRestricted)
-                Toast.makeText(
-                    activity,
-                    "Restricted apps updated (${currentRestricted.size} locked)",
-                    Toast.LENGTH_SHORT
-                ).show()
-                onUpdated?.invoke()
-            }
-            .setNeutralButton("Clear All") { _, _ ->
-                setRestrictedPackages(activity, emptySet())
-                Toast.makeText(activity, "All app restrictions cleared", Toast.LENGTH_SHORT).show()
-                onUpdated?.invoke()
-            }
-            .setNegativeButton("Cancel", null)
-            .show()
-    }
-
-    fun showAdminMenu(activity: Activity, onUpdated: (() -> Unit)? = null) {
-        val accStatus = if (isAccessibilityServiceEnabled(activity)) "ON" else "OFF - Tap to Enable"
-        val options = arrayOf(
-            "Select Restricted Apps (Require Password)",
-            "Global App Lock (Notification Bar): $accStatus",
-            "Change Password",
-            "Change Default Home App"
-        )
-        AlertDialog.Builder(activity)
-            .setTitle("Admin Settings")
-            .setItems(options) { _, which ->
-                when (which) {
-                    0 -> showRestrictedAppsDialog(activity, onUpdated)
-                    1 -> {
-                        temporarilyUnlock("com.android.settings")
-                        activity.startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS))
-                    }
-                    2 -> showSetPasswordDialog(activity, cancelable = true)
-                    3 -> {
-                        temporarilyUnlock("com.android.settings")
-                        try {
-                            activity.startActivity(Intent(Settings.ACTION_HOME_SETTINGS))
-                        } catch (_: Exception) {
-                            activity.startActivity(Intent(Settings.ACTION_SETTINGS))
-                        }
-                    }
-                }
-            }
-            .setNegativeButton("Close", null)
-            .show()
     }
 }
