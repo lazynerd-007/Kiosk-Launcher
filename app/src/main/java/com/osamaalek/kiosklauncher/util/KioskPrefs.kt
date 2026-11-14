@@ -1,6 +1,5 @@
 package com.osamaalek.kiosklauncher.util
 
-import android.app.Activity
 import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
@@ -51,6 +50,20 @@ object KioskPrefs {
         }
     }
 
+    /**
+     * Returns true only if the package is an actual user-launchable app (appears in the app grid)
+     * or Android Settings. Prevents locking hidden system dialogs like Share Sheet, Permission Controller,
+     * Package Installer, or In-Call UI that have no launcher icon.
+     */
+    fun isLaunchableOrSettings(context: Context, packageName: String): Boolean {
+        if (packageName == "com.android.settings") return true
+        return try {
+            context.packageManager.getLaunchIntentForPackage(packageName) != null
+        } catch (_: Exception) {
+            false
+        }
+    }
+
     fun isAccessibilityServiceEnabled(context: Context): Boolean {
         val expectedComponent = ComponentName(context, AppLockAccessibilityService::class.java)
         val enabledServices = Settings.Secure.getString(
@@ -62,18 +75,20 @@ object KioskPrefs {
             .any { it == expectedComponent }
     }
 
-    fun showEnableAccessibilityDialog(context: Context) {
-        AlertDialog.Builder(context)
+    fun showEnableAccessibilityDialog(context: Context): AlertDialog {
+        val dialog = AlertDialog.Builder(context)
             .setTitle("Enable Global App Lock")
             .setMessage(
-                "To lock all apps across your device (including Settings from the notification bar), enable 'Kiosk Launcher' in Android Accessibility Settings."
+                "To lock apps across your device (including Settings from the notification bar), enable 'Kiosk Launcher' in Android Accessibility Settings."
             )
             .setPositiveButton("Open Settings") { _, _ ->
                 temporarilyUnlock("com.android.settings")
                 context.startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS))
             }
             .setNegativeButton("Later", null)
-            .show()
+            .create()
+        dialog.show()
+        return dialog
     }
 
     fun isPasswordSet(context: Context): Boolean {
@@ -102,23 +117,22 @@ object KioskPrefs {
     }
 
     /**
-     * All apps are restricted (locked) by default unless explicitly added to the unlocked set,
-     * except our own app and the device's default Home launcher.
+     * All launchable apps (plus Settings) are restricted by default unless added to unlocked_packages.
+     * Non-launchable system helpers and the default Home launcher are never restricted.
      */
     fun isPackageRestricted(context: Context, packageName: String): Boolean {
         if (packageName == context.packageName) return false
         if (isHomePackage(context, packageName)) return false
+        if (!isLaunchableOrSettings(context, packageName)) return false
         return !getUnlockedPackages(context).contains(packageName)
     }
 
     fun togglePackageRestriction(context: Context, packageName: String): Boolean {
         val unlocked = getUnlockedPackages(context).toMutableSet()
         val nowRestricted = if (unlocked.contains(packageName)) {
-            // Was unlocked -> now restricted (locked)
             unlocked.remove(packageName)
             true
         } else {
-            // Was restricted (default) -> now unlocked
             unlocked.add(packageName)
             false
         }
@@ -136,7 +150,7 @@ object KioskPrefs {
         context: Context,
         cancelable: Boolean = true,
         onPasswordSet: (() -> Unit)? = null
-    ) {
+    ): AlertDialog {
         val density = context.resources.displayMetrics.density
         val pad = (20 * density).toInt()
 
@@ -190,19 +204,21 @@ object KioskPrefs {
             }
         }
         dialog.show()
+        return dialog
     }
 
     fun requirePassword(
         context: Context,
         title: String = "Password Required",
         message: String = "Enter admin password to continue:",
+        cancelable: Boolean = true,
+        onCancel: (() -> Unit)? = null,
         onSuccess: () -> Unit
-    ) {
+    ): AlertDialog {
         if (!isPasswordSet(context)) {
-            showSetPasswordDialog(context, cancelable = true) {
+            return showSetPasswordDialog(context, cancelable = false) {
                 onSuccess()
             }
-            return
         }
 
         val density = context.resources.displayMetrics.density
@@ -221,8 +237,15 @@ object KioskPrefs {
             .setTitle(title)
             .setMessage(message)
             .setView(container)
+            .setCancelable(cancelable)
             .setPositiveButton("OK", null)
-            .setNegativeButton("Cancel", null)
+            .setNegativeButton("Cancel") { d, _ ->
+                d.dismiss()
+                onCancel?.invoke()
+            }
+            .setOnCancelListener {
+                onCancel?.invoke()
+            }
             .create()
 
         dialog.setOnShowListener {
@@ -237,5 +260,6 @@ object KioskPrefs {
             }
         }
         dialog.show()
+        return dialog
     }
 }

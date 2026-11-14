@@ -8,7 +8,9 @@ import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
 import android.widget.Button
+import android.widget.LinearLayout
 import android.widget.TextView
+import androidx.appcompat.app.AlertDialog
 import androidx.fragment.app.Fragment
 import androidx.recyclerview.widget.GridLayoutManager
 import androidx.recyclerview.widget.RecyclerView
@@ -19,16 +21,19 @@ import com.osamaalek.kiosklauncher.util.KioskPrefs
 
 class HomeFragment : Fragment() {
 
+    private lateinit var topBar: LinearLayout
     private lateinit var recyclerView: RecyclerView
     private lateinit var buttonChangePassword: Button
     private lateinit var textServiceStatus: TextView
     private var isAdminAuthenticated = false
+    private var activeDialog: AlertDialog? = null
 
     override fun onCreateView(
         inflater: LayoutInflater, container: ViewGroup?, savedInstanceState: Bundle?
     ): View? {
         val v = inflater.inflate(R.layout.fragment_home, container, false)
 
+        topBar = v.findViewById(R.id.topBar)
         recyclerView = v.findViewById(R.id.recyclerView_apps)
         buttonChangePassword = v.findViewById(R.id.button_change_password)
         textServiceStatus = v.findViewById(R.id.text_service_status)
@@ -37,10 +42,12 @@ class HomeFragment : Fragment() {
         recyclerView.setHasFixedSize(true)
 
         buttonChangePassword.setOnClickListener {
+            if (!isAdminAuthenticated) return@setOnClickListener
             KioskPrefs.showSetPasswordDialog(requireContext(), cancelable = true)
         }
 
         textServiceStatus.setOnClickListener {
+            if (!isAdminAuthenticated) return@setOnClickListener
             if (!KioskPrefs.isAccessibilityServiceEnabled(requireContext())) {
                 KioskPrefs.temporarilyUnlock("com.android.settings")
                 startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS))
@@ -54,29 +61,45 @@ class HomeFragment : Fragment() {
         super.onResume()
         updateServiceBanner()
 
+        // Avoid stacking duplicate dialogs if one is already open
+        if (activeDialog?.isShowing == true) {
+            return
+        }
+
         if (!KioskPrefs.isPasswordSet(requireContext())) {
-            KioskPrefs.showSetPasswordDialog(requireContext(), cancelable = false) {
-                isAdminAuthenticated = true
-                loadApps()
-                if (!KioskPrefs.isAccessibilityServiceEnabled(requireContext())) {
-                    KioskPrefs.showEnableAccessibilityDialog(requireContext())
-                }
-            }
-        } else if (!isAdminAuthenticated) {
+            topBar.visibility = View.INVISIBLE
             recyclerView.visibility = View.INVISIBLE
-            KioskPrefs.requirePassword(
-                requireContext(),
-                title = "Admin Password",
-                message = "Enter your password to manage locked apps:"
-            ) {
+            activeDialog = KioskPrefs.showSetPasswordDialog(requireContext(), cancelable = false) {
                 isAdminAuthenticated = true
+                topBar.visibility = View.VISIBLE
                 recyclerView.visibility = View.VISIBLE
                 loadApps()
                 if (!KioskPrefs.isAccessibilityServiceEnabled(requireContext())) {
-                    KioskPrefs.showEnableAccessibilityDialog(requireContext())
+                    activeDialog = KioskPrefs.showEnableAccessibilityDialog(requireContext())
+                }
+            }
+        } else if (!isAdminAuthenticated) {
+            topBar.visibility = View.INVISIBLE
+            recyclerView.visibility = View.INVISIBLE
+            activeDialog = KioskPrefs.requirePassword(
+                requireContext(),
+                title = "Admin Password",
+                message = "Enter your password to manage locked apps:",
+                cancelable = false,
+                onCancel = {
+                    requireActivity().finish()
+                }
+            ) {
+                isAdminAuthenticated = true
+                topBar.visibility = View.VISIBLE
+                recyclerView.visibility = View.VISIBLE
+                loadApps()
+                if (!KioskPrefs.isAccessibilityServiceEnabled(requireContext())) {
+                    activeDialog = KioskPrefs.showEnableAccessibilityDialog(requireContext())
                 }
             }
         } else {
+            topBar.visibility = View.VISIBLE
             recyclerView.visibility = View.VISIBLE
             loadApps()
         }
@@ -84,6 +107,8 @@ class HomeFragment : Fragment() {
 
     override fun onStop() {
         super.onStop()
+        activeDialog?.dismiss()
+        activeDialog = null
         isAdminAuthenticated = false
     }
 
@@ -100,7 +125,10 @@ class HomeFragment : Fragment() {
 
     private fun loadApps() {
         val apps = AppsUtil.getAllApps(requireContext())
-            .filter { it.packageName?.toString() != requireContext().packageName }
+            .filter {
+                val pkg = it.packageName?.toString() ?: ""
+                pkg != requireContext().packageName && !KioskPrefs.isHomePackage(requireContext(), pkg)
+            }
             .distinctBy { it.packageName?.toString() }
             .sortedBy { it.label?.toString()?.lowercase() ?: "" }
         recyclerView.adapter = AppsAdapter(apps, requireContext())

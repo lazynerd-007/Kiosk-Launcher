@@ -45,9 +45,16 @@ class AppLockAccessibilityService : AccessibilityService() {
             return
         }
 
-        // If user switched to a different app than the temporarily unlocked one, re-lock
+        // Ignore non-launchable system helpers/sub-screens (e.g. PermissionController, Share Sheet,
+        // Google Play Services sub-screens opened from inside Settings) so they don't clear
+        // the temporary unlock of the parent app or get blocked.
+        if (!KioskPrefs.isLaunchableOrSettings(this, pkg)) {
+            return
+        }
+
+        // If user switched to a different launchable app than the temporarily unlocked one, re-lock
         val unlockedPkg = KioskPrefs.getTemporarilyUnlockedPackage()
-        if (unlockedPkg != null && pkg != unlockedPkg && !pkg.contains("permissioncontroller")) {
+        if (unlockedPkg != null && pkg != unlockedPkg) {
             KioskPrefs.clearTemporaryUnlock()
         }
 

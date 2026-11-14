@@ -1,6 +1,7 @@
 package com.osamaalek.kiosklauncher.adapter
 
 import android.content.Context
+import android.graphics.Color
 import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
@@ -27,7 +28,16 @@ class AppsAdapter(private val list: List<AppInfo>, private val context: Context)
 
         holder.textView.text = app.label
         holder.imageView.setImageDrawable(app.icon)
-        holder.itemView.alpha = if (isRestricted) 1.0f else 0.5f
+
+        if (isRestricted) {
+            holder.itemView.alpha = 0.45f
+            holder.statusView.text = "Locked"
+            holder.statusView.setTextColor(Color.parseColor("#D32F2F"))
+        } else {
+            holder.itemView.alpha = 1.0f
+            holder.statusView.text = "Unlocked"
+            holder.statusView.setTextColor(Color.parseColor("#2E7D32"))
+        }
 
         holder.itemView.setOnClickListener {
             if (pkg.isEmpty() || pkg == context.packageName) return@setOnClickListener
@@ -49,5 +59,6 @@ class AppsAdapter(private val list: List<AppInfo>, private val context: Context)
     class ContentHolder(itemView: View) : RecyclerView.ViewHolder(itemView) {
         val imageView: ImageView = itemView.findViewById(R.id.app_icon)
         val textView: TextView = itemView.findViewById(R.id.app_name)
+        val statusView: TextView = itemView.findViewById(R.id.app_status)
     }
 }
