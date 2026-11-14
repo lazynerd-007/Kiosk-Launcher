@@ -10,11 +10,10 @@ import android.widget.TextView
 import androidx.recyclerview.widget.RecyclerView
 import com.osamaalek.kiosklauncher.R
 import com.osamaalek.kiosklauncher.model.AppInfo
-
+import com.osamaalek.kiosklauncher.util.KioskPrefs
 
 class AppsAdapter(private val list: List<AppInfo>, private val context: Context) :
     RecyclerView.Adapter<AppsAdapter.ContentHolder>() {
-
 
     override fun onCreateViewHolder(parent: ViewGroup, viewType: Int): AppsAdapter.ContentHolder {
         val view = LayoutInflater.from(parent.context).inflate(R.layout.holder_app, parent, false)
@@ -22,13 +21,26 @@ class AppsAdapter(private val list: List<AppInfo>, private val context: Context)
     }
 
     override fun onBindViewHolder(holder: ContentHolder, position: Int) {
-        holder.textView.text = list[position].label
-        holder.imageView.setImageDrawable(list[position].icon)
+        val app = list[position]
+        holder.textView.text = app.label
+        holder.imageView.setImageDrawable(app.icon)
 
         holder.itemView.setOnClickListener {
-            val launchIntent: Intent? =
-                context.packageManager.getLaunchIntentForPackage(list[position].packageName.toString())
-            context.startActivity(launchIntent)
+            val pkg = app.packageName?.toString() ?: return@setOnClickListener
+            val launchIntent: Intent? = context.packageManager.getLaunchIntentForPackage(pkg)
+            if (launchIntent != null) {
+                if (KioskPrefs.isPackageAllowed(context, pkg)) {
+                    context.startActivity(launchIntent)
+                } else {
+                    KioskPrefs.requirePassword(
+                        context,
+                        title = "Password Required",
+                        message = "Enter admin password to open ${app.label}:"
+                    ) {
+                        context.startActivity(launchIntent)
+                    }
+                }
+            }
         }
     }
 
@@ -40,5 +52,4 @@ class AppsAdapter(private val list: List<AppInfo>, private val context: Context)
         val imageView: ImageView = itemView.findViewById(R.id.app_icon)
         val textView: TextView = itemView.findViewById(R.id.app_name)
     }
-
 }

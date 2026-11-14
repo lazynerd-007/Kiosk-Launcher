@@ -37,8 +37,7 @@ class KioskUtil {
                 val activity = ComponentName(context, MainActivity::class.java)
                 devicePolicyManager.addPersistentPreferredActivity(myDeviceAdmin, filter, activity)
 
-                val appsWhiteList = arrayOf("com.osamaalek.kiosklauncher")
-                devicePolicyManager.setLockTaskPackages(myDeviceAdmin, appsWhiteList)
+                updateLockTaskPackages(context)
 
                 devicePolicyManager.addUserRestriction(
                     myDeviceAdmin, UserManager.DISALLOW_UNINSTALL_APPS
@@ -47,6 +46,17 @@ class KioskUtil {
                 Toast.makeText(
                     context, "This app is not an owner device", Toast.LENGTH_SHORT
                 ).show()
+            }
+        }
+
+        fun updateLockTaskPackages(context: Context) {
+            val devicePolicyManager =
+                context.getSystemService(Context.DEVICE_POLICY_SERVICE) as DevicePolicyManager
+            val myDeviceAdmin = ComponentName(context, MyDeviceAdminReceiver::class.java)
+            if (devicePolicyManager.isDeviceOwnerApp(context.packageName)) {
+                val allowed = KioskPrefs.getAllowedPackages(context).toMutableSet()
+                allowed.add(context.packageName)
+                devicePolicyManager.setLockTaskPackages(myDeviceAdmin, allowed.toTypedArray())
             }
         }
 
@@ -68,6 +78,7 @@ class KioskUtil {
                     myDeviceAdmin, context.packageName
                 )
             }
+            Toast.makeText(context, "Kiosk mode stopped", Toast.LENGTH_SHORT).show()
         }
     }
 }
