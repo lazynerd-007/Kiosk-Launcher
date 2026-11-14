@@ -21,13 +21,14 @@ class KioskUtil {
             if (devicePolicyManager.isAdminActive(myDeviceAdmin)) {
                 context.startLockTask()
             } else {
-                context.startActivity(
-                    Intent().setComponent(
-                        ComponentName(
-                            "com.android.settings", "com.android.settings.DeviceAdminSettings"
-                        )
+                val intent = Intent(DevicePolicyManager.ACTION_ADD_DEVICE_ADMIN).apply {
+                    putExtra(DevicePolicyManager.EXTRA_DEVICE_ADMIN, myDeviceAdmin)
+                    putExtra(
+                        DevicePolicyManager.EXTRA_ADD_EXPLANATION,
+                        "Enable Device Admin to allow Kiosk Launcher to lock the screen."
                     )
-                )
+                }
+                context.startActivity(intent)
             }
             if (devicePolicyManager.isDeviceOwnerApp(context.packageName)) {
                 val filter = IntentFilter(Intent.ACTION_MAIN)
@@ -36,14 +37,12 @@ class KioskUtil {
                 val activity = ComponentName(context, MainActivity::class.java)
                 devicePolicyManager.addPersistentPreferredActivity(myDeviceAdmin, filter, activity)
 
-                //
                 val appsWhiteList = arrayOf("com.osamaalek.kiosklauncher")
                 devicePolicyManager.setLockTaskPackages(myDeviceAdmin, appsWhiteList)
 
                 devicePolicyManager.addUserRestriction(
                     myDeviceAdmin, UserManager.DISALLOW_UNINSTALL_APPS
                 )
-
             } else {
                 Toast.makeText(
                     context, "This app is not an owner device", Toast.LENGTH_SHORT
@@ -56,11 +55,17 @@ class KioskUtil {
                 context.getSystemService(Context.DEVICE_POLICY_SERVICE) as DevicePolicyManager
             val myDeviceAdmin = ComponentName(context, MyDeviceAdminReceiver::class.java)
             if (devicePolicyManager.isAdminActive(myDeviceAdmin)) {
-                context.stopLockTask()
+                try {
+                    context.stopLockTask()
+                } catch (_: Exception) {
+                }
             }
             if (devicePolicyManager.isDeviceOwnerApp(context.packageName)) {
                 devicePolicyManager.clearUserRestriction(
                     myDeviceAdmin, UserManager.DISALLOW_UNINSTALL_APPS
+                )
+                devicePolicyManager.clearPackagePersistentPreferredActivities(
+                    myDeviceAdmin, context.packageName
                 )
             }
         }
