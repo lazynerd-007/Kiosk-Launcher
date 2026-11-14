@@ -1,10 +1,15 @@
 package com.osamaalek.kiosklauncher.ui
 
+import android.content.Context
 import android.content.Intent
 import android.graphics.Color
 import android.os.Bundle
 import android.text.InputType
 import android.view.Gravity
+import android.view.KeyEvent
+import android.view.WindowManager
+import android.view.inputmethod.EditorInfo
+import android.view.inputmethod.InputMethodManager
 import android.widget.Button
 import android.widget.EditText
 import android.widget.ImageView
@@ -23,6 +28,7 @@ class PasswordLockActivity : AppCompatActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        window.setSoftInputMode(WindowManager.LayoutParams.SOFT_INPUT_STATE_ALWAYS_VISIBLE)
         lockedPackage = intent.getStringExtra(EXTRA_PACKAGE_NAME) ?: ""
         buildLockScreenUI()
     }
@@ -102,6 +108,8 @@ class PasswordLockActivity : AppCompatActivity() {
             setHintTextColor(Color.parseColor("#888888"))
             setTextColor(Color.WHITE)
             inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_PASSWORD
+            imeOptions = EditorInfo.IME_ACTION_DONE
+            isSingleLine = true
             layoutParams = LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT,
                 LinearLayout.LayoutParams.WRAP_CONTENT
@@ -110,6 +118,29 @@ class PasswordLockActivity : AppCompatActivity() {
             }
         }
         root.addView(passwordInput)
+
+        val attemptUnlock = {
+            val entered = passwordInput.text.toString().trim()
+            if (!KioskPrefs.isPasswordSet(this@PasswordLockActivity) ||
+                KioskPrefs.checkPassword(this@PasswordLockActivity, entered)
+            ) {
+                KioskPrefs.temporarilyUnlock(lockedPackage)
+                finish()
+            } else {
+                passwordInput.error = "Incorrect password"
+            }
+        }
+
+        passwordInput.setOnEditorActionListener { _, actionId, event ->
+            if (actionId == EditorInfo.IME_ACTION_DONE ||
+                (event?.keyCode == KeyEvent.KEYCODE_ENTER && event.action == KeyEvent.ACTION_DOWN)
+            ) {
+                attemptUnlock()
+                true
+            } else {
+                false
+            }
+        }
 
         val buttonRow = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
@@ -136,15 +167,7 @@ class PasswordLockActivity : AppCompatActivity() {
                 marginStart = (8 * density).toInt()
             }
             setOnClickListener {
-                val entered = passwordInput.text.toString().trim()
-                if (!KioskPrefs.isPasswordSet(this@PasswordLockActivity) ||
-                    KioskPrefs.checkPassword(this@PasswordLockActivity, entered)
-                ) {
-                    KioskPrefs.temporarilyUnlock(lockedPackage)
-                    finish()
-                } else {
-                    passwordInput.error = "Incorrect password"
-                }
+                attemptUnlock()
             }
         }
 
@@ -153,6 +176,12 @@ class PasswordLockActivity : AppCompatActivity() {
         root.addView(buttonRow)
 
         setContentView(root)
+
+        passwordInput.requestFocus()
+        passwordInput.post {
+            val imm = getSystemService(Context.INPUT_METHOD_SERVICE) as? InputMethodManager
+            imm?.showSoftInput(passwordInput, InputMethodManager.SHOW_IMPLICIT)
+        }
     }
 
     override fun onBackPressed() {

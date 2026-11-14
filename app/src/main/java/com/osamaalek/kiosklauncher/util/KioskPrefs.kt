@@ -5,6 +5,10 @@ import android.content.Context
 import android.content.Intent
 import android.provider.Settings
 import android.text.InputType
+import android.view.KeyEvent
+import android.view.WindowManager
+import android.view.inputmethod.EditorInfo
+import android.view.inputmethod.InputMethodManager
 import android.widget.EditText
 import android.widget.FrameLayout
 import android.widget.LinearLayout
@@ -117,14 +121,22 @@ object KioskPrefs {
     }
 
     /**
+     * Fast check without PackageManager IPC for UI lists where items are already filtered.
+     */
+    fun isPackageUnlocked(context: Context, packageName: String): Boolean {
+        return getUnlockedPackages(context).contains(packageName)
+    }
+
+    /**
      * All launchable apps (plus Settings) are restricted by default unless added to unlocked_packages.
      * Non-launchable system helpers and the default Home launcher are never restricted.
      */
     fun isPackageRestricted(context: Context, packageName: String): Boolean {
         if (packageName == context.packageName) return false
+        if (getUnlockedPackages(context).contains(packageName)) return false
         if (isHomePackage(context, packageName)) return false
         if (!isLaunchableOrSettings(context, packageName)) return false
-        return !getUnlockedPackages(context).contains(packageName)
+        return true
     }
 
     fun togglePackageRestriction(context: Context, packageName: String): Boolean {
@@ -146,6 +158,15 @@ object KioskPrefs {
         return bytes.joinToString("") { "%02x".format(it) }
     }
 
+    private fun focusAndShowKeyboard(dialog: AlertDialog, input: EditText) {
+        dialog.window?.setSoftInputMode(WindowManager.LayoutParams.SOFT_INPUT_STATE_ALWAYS_VISIBLE)
+        input.requestFocus()
+        input.post {
+            val imm = input.context.getSystemService(Context.INPUT_METHOD_SERVICE) as? InputMethodManager
+            imm?.showSoftInput(input, InputMethodManager.SHOW_IMPLICIT)
+        }
+    }
+
     fun showSetPasswordDialog(
         context: Context,
         cancelable: Boolean = true,
@@ -162,10 +183,14 @@ object KioskPrefs {
         val inputPassword = EditText(context).apply {
             hint = "Enter new password / PIN"
             inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_PASSWORD
+            imeOptions = EditorInfo.IME_ACTION_NEXT
+            isSingleLine = true
         }
         val inputConfirm = EditText(context).apply {
             hint = "Confirm password / PIN"
             inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_PASSWORD
+            imeOptions = EditorInfo.IME_ACTION_DONE
+            isSingleLine = true
         }
 
         layout.addView(inputPassword)
@@ -183,24 +208,40 @@ object KioskPrefs {
         }
 
         val dialog = builder.create()
-        dialog.setOnShowListener {
-            dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener {
-                val p1 = inputPassword.text.toString().trim()
-                val p2 = inputConfirm.text.toString().trim()
-                when {
-                    p1.length < 4 -> {
-                        inputPassword.error = "Password must be at least 4 characters"
-                    }
-                    p1 != p2 -> {
-                        inputConfirm.error = "Passwords do not match"
-                    }
-                    else -> {
-                        setPassword(context, p1)
-                        Toast.makeText(context, "Password saved", Toast.LENGTH_SHORT).show()
-                        dialog.dismiss()
-                        onPasswordSet?.invoke()
-                    }
+        val submitAction = {
+            val p1 = inputPassword.text.toString().trim()
+            val p2 = inputConfirm.text.toString().trim()
+            when {
+                p1.length < 4 -> {
+                    inputPassword.error = "Password must be at least 4 characters"
                 }
+                p1 != p2 -> {
+                    inputConfirm.error = "Passwords do not match"
+                }
+                else -> {
+                    setPassword(context, p1)
+                    Toast.makeText(context, "Password saved", Toast.LENGTH_SHORT).show()
+                    dialog.dismiss()
+                    onPasswordSet?.invoke()
+                }
+            }
+        }
+
+        inputConfirm.setOnEditorActionListener { _, actionId, event ->
+            if (actionId == EditorInfo.IME_ACTION_DONE ||
+                (event?.keyCode == KeyEvent.KEYCODE_ENTER && event.action == KeyEvent.ACTION_DOWN)
+            ) {
+                submitAction()
+                true
+            } else {
+                false
+            }
+        }
+
+        dialog.setOnShowListener {
+            focusAndShowKeyboard(dialog, inputPassword)
+            dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener {
+                submitAction()
             }
         }
         dialog.show()
@@ -230,6 +271,8 @@ object KioskPrefs {
         val input = EditText(context).apply {
             hint = "Password / PIN"
             inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_PASSWORD
+            imeOptions = EditorInfo.IME_ACTION_DONE
+            isSingleLine = true
         }
         container.addView(input)
 
@@ -248,15 +291,31 @@ object KioskPrefs {
             }
             .create()
 
+        val submitAction = {
+            val entered = input.text.toString().trim()
+            if (checkPassword(context, entered)) {
+                dialog.dismiss()
+                onSuccess()
+            } else {
+                input.error = "Incorrect password"
+            }
+        }
+
+        input.setOnEditorActionListener { _, actionId, event ->
+            if (actionId == EditorInfo.IME_ACTION_DONE ||
+                (event?.keyCode == KeyEvent.KEYCODE_ENTER && event.action == KeyEvent.ACTION_DOWN)
+            ) {
+                submitAction()
+                true
+            } else {
+                false
+            }
+        }
+
         dialog.setOnShowListener {
+            focusAndShowKeyboard(dialog, input)
             dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener {
-                val entered = input.text.toString().trim()
-                if (checkPassword(context, entered)) {
-                    dialog.dismiss()
-                    onSuccess()
-                } else {
-                    input.error = "Incorrect password"
-                }
+                submitAction()
             }
         }
         dialog.show()

@@ -16,6 +16,8 @@ import com.osamaalek.kiosklauncher.util.KioskPrefs
 class AppsAdapter(private val list: List<AppInfo>, private val context: Context) :
     RecyclerView.Adapter<AppsAdapter.ContentHolder>() {
 
+    private val unlockedPackages = KioskPrefs.getUnlockedPackages(context).toMutableSet()
+
     override fun onCreateViewHolder(parent: ViewGroup, viewType: Int): AppsAdapter.ContentHolder {
         val view = LayoutInflater.from(parent.context).inflate(R.layout.holder_app, parent, false)
         return ContentHolder(view)
@@ -24,7 +26,7 @@ class AppsAdapter(private val list: List<AppInfo>, private val context: Context)
     override fun onBindViewHolder(holder: ContentHolder, position: Int) {
         val app = list[position]
         val pkg = app.packageName?.toString() ?: ""
-        val isRestricted = KioskPrefs.isPackageRestricted(context, pkg)
+        val isRestricted = !unlockedPackages.contains(pkg)
 
         holder.textView.text = app.label
         holder.imageView.setImageDrawable(app.icon)
@@ -42,6 +44,11 @@ class AppsAdapter(private val list: List<AppInfo>, private val context: Context)
         holder.itemView.setOnClickListener {
             if (pkg.isEmpty() || pkg == context.packageName) return@setOnClickListener
             val nowRestricted = KioskPrefs.togglePackageRestriction(context, pkg)
+            if (nowRestricted) {
+                unlockedPackages.remove(pkg)
+            } else {
+                unlockedPackages.add(pkg)
+            }
             notifyItemChanged(position)
             val statusMsg = if (nowRestricted) {
                 "${app.label} is now password-protected"
