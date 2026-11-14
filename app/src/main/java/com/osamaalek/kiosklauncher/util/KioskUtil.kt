@@ -54,9 +54,11 @@ class KioskUtil {
                 context.getSystemService(Context.DEVICE_POLICY_SERVICE) as DevicePolicyManager
             val myDeviceAdmin = ComponentName(context, MyDeviceAdminReceiver::class.java)
             if (devicePolicyManager.isDeviceOwnerApp(context.packageName)) {
-                val allowed = KioskPrefs.getAllowedPackages(context).toMutableSet()
-                allowed.add(context.packageName)
-                devicePolicyManager.setLockTaskPackages(myDeviceAdmin, allowed.toTypedArray())
+                val allPackages = AppsUtil.getAllApps(context)
+                    .mapNotNull { it.packageName?.toString() }
+                    .toMutableSet()
+                allPackages.add(context.packageName)
+                devicePolicyManager.setLockTaskPackages(myDeviceAdmin, allPackages.toTypedArray())
             }
         }
 
